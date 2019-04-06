@@ -1,0 +1,92 @@
+#!/sbin/openrc-run
+
+# backward compatibility for existing gentoo layout 
+#
+if [ -d "/var/lib/minicoin/.minicoin" ]; then
+	MINICOIND_DEFAULT_DATADIR="/var/lib/minicoin/.minicoin"
+else
+	MINICOIND_DEFAULT_DATADIR="/var/lib/minicoind"
+fi
+
+MINICOIND_CONFIGFILE=${MINICOIND_CONFIGFILE:-/etc/minicoin/minicoin.conf}
+MINICOIND_PIDDIR=${MINICOIND_PIDDIR:-/var/run/minicoind}
+MINICOIND_PIDFILE=${MINICOIND_PIDFILE:-${MINICOIND_PIDDIR}/minicoind.pid}
+MINICOIND_DATADIR=${MINICOIND_DATADIR:-${MINICOIND_DEFAULT_DATADIR}}
+MINICOIND_USER=${MINICOIND_USER:-${MINICOIN_USER:-minicoin}}
+MINICOIND_GROUP=${MINICOIND_GROUP:-minicoin}
+MINICOIND_BIN=${MINICOIND_BIN:-/usr/bin/minicoind}
+MINICOIND_NICE=${MINICOIND_NICE:-${NICELEVEL:-0}}
+MINICOIND_OPTS="${MINICOIND_OPTS:-${MINICOIN_OPTS}}"
+
+name="Minicoin Core Daemon"
+description="Minicoin cryptocurrency P2P network daemon"
+
+command="/usr/bin/minicoind"
+command_args="-pid=\"${MINICOIND_PIDFILE}\" \
+		-conf=\"${MINICOIND_CONFIGFILE}\" \
+		-datadir=\"${MINICOIND_DATADIR}\" \
+		-daemon \
+		${MINICOIND_OPTS}"
+
+required_files="${MINICOIND_CONFIGFILE}"
+start_stop_daemon_args="-u ${MINICOIND_USER} \
+			-N ${MINICOIND_NICE} -w 2000"
+pidfile="${MINICOIND_PIDFILE}"
+
+# The retry schedule to use when stopping the daemon. Could be either
+# a timeout in seconds or multiple signal/timeout pairs (like
+# "SIGKILL/180 SIGTERM/300")
+retry="${MINICOIND_SIGTERM_TIMEOUT}"
+
+depend() {
+	need localmount net
+}
+
+# verify
+# 1) that the datadir exists and is writable (or create it)
+# 2) that a directory for the pid exists and is writable
+# 3) ownership and permissions on the config file
+start_pre() {
+	checkpath \
+	-d \
+	--mode 0750 \
+	--owner "${MINICOIND_USER}:${MINICOIND_GROUP}" \
+	"${MINICOIND_DATADIR}"
+
+	checkpath \
+	-d \
+	--mode 0755 \
+	--owner "${MINICOIND_USER}:${MINICOIND_GROUP}" \
+	"${MINICOIND_PIDDIR}"
+
+	checkpath -f \
+	-o ${MINICOIND_USER}:${MINICOIND_GROUP} \
+	-m 0660 \
+	${MINICOIND_CONFIGFILE}
+
+	checkconfig || return 1
+}
+
+checkconfig()
+{
+	if ! grep -qs '^rpcpassword=' "${MINICOIND_CONFIGFILE}" ; then
+		eerror ""
+		eerror "ERROR: You must set a secure rpcpassword to run minicoind."
+		eerror "The setting must appear in ${MINICOIND_CONFIGFILE}"
+		eerror ""
+		eerror "This password is security critical to securing wallets "
+		eerror "and must not be the same as the rpcuser setting."
+		eerror "You can generate a suitable random password using the following "
+		eerror "command from the shell:"
+		eerror ""
+		eerror "bash -c 'tr -dc a-zA-Z0-9 < /dev/urandom | head -c32 && echo'"
+		eerror ""
+		eerror "It is recommended that you also set alertnotify so you are "
+		eerror "notified of problems:"
+		eerror ""
+		eerror "ie: alertnotify=echo %%s | mail -s \"Minicoin Alert\"" \
+			"admin@foo.com"
+		eerror ""
+		return 1
+	fi
+}
